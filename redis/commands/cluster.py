@@ -36,7 +36,6 @@ from .core import (
     FunctionCommands,
     ManagementCommands,
     PubSubCommands,
-    AsyncPubSubCommands,
     ResponseT,
     ScriptCommands,
 )
@@ -872,7 +871,6 @@ class AsyncRedisClusterCommands(
     AsyncClusterMultiKeyCommands,
     AsyncClusterManagementCommands,
     AsyncACLCommands,
-    AsyncPubSubCommands,
     AsyncClusterDataAccessCommands,
     AsyncScriptCommands,
     AsyncFunctionCommands,

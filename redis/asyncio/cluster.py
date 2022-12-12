@@ -16,7 +16,7 @@ from typing import (
     Union,
 )
 
-from redis.asyncio.client import ResponseCallbackT, PubSub
+from redis.asyncio.client import ResponseCallbackT
 from redis.asyncio.connection import (
     Connection,
     DefaultParser,
@@ -387,13 +387,6 @@ class RedisCluster(AbstractRedis, AbstractRedisCluster, AsyncRedisClusterCommand
                     self._initialize = True
                     await self.nodes_manager.close()
                     await self.nodes_manager.close("startup_nodes")
-
-    def pubsub(self, node=None, host=None, port=None, **kwargs):
-        """
-        Allows passing a ClusterNode, or host&port, to get a pubsub instance
-        connected to the specified node
-        """
-        return ClusterPubSub(self, node=node, host=host, port=port, **kwargs)
 
     async def __aenter__(self) -> "RedisCluster":
         return await self.initialize()
@@ -1310,133 +1303,6 @@ class NodesManager:
                 for node in getattr(self, attr).values()
             )
         )
-
-
-class ClusterPubSub(PubSub):
-    """
-    Wrapper for PubSub class.
-
-    IMPORTANT: before using ClusterPubSub, read about the known limitations
-    with pubsub in Cluster mode and learn how to workaround them:
-    https://redis-py-cluster.readthedocs.io/en/stable/pubsub.html
-    """
-
-    def __init__(self, redis_cluster, node=None, host=None, port=None, **kwargs):
-        """
-        When a pubsub instance is created without specifying a node, a single
-        node will be transparently chosen for the pubsub connection on the
-        first command execution. The node will be determined by:
-         1. Hashing the channel name in the request to find its keyslot
-         2. Selecting a node that handles the keyslot: If read_from_replicas is
-            set to true, a replica can be selected.
-
-        :type redis_cluster: RedisCluster
-        :type node: ClusterNode
-        :type host: str
-        :type port: int
-        """
-        self.node = None
-        self.set_pubsub_node(redis_cluster, node, host, port)
-        connection_pool = (
-            None
-            if self.node is None
-            else redis_cluster.get_redis_connection(self.node).connection_pool
-        )
-        self.cluster = redis_cluster
-        super().__init__(
-            **kwargs, connection_pool=connection_pool, encoder=redis_cluster.encoder
-        )
-
-    def set_pubsub_node(self, cluster, node=None, host=None, port=None):
-        """
-        The pubsub node will be set according to the passed node, host and port
-        When none of the node, host, or port are specified - the node is set
-        to None and will be determined by the keyslot of the channel in the
-        first command to be executed.
-        RedisClusterException will be thrown if the passed node does not exist
-        in the cluster.
-        If host is passed without port, or vice versa, a DataError will be
-        thrown.
-        :type cluster: RedisCluster
-        :type node: ClusterNode
-        :type host: str
-        :type port: int
-        """
-        if node is not None:
-            # node is passed by the user
-            self._raise_on_invalid_node(cluster, node, node.host, node.port)
-            pubsub_node = node
-        elif host is not None and port is not None:
-            # host and port passed by the user
-            node = cluster.get_node(host=host, port=port)
-            self._raise_on_invalid_node(cluster, node, host, port)
-            pubsub_node = node
-        elif any([host, port]) is True:
-            # only 'host' or 'port' passed
-            raise DataError("Passing a host requires passing a port, " "and vice versa")
-        else:
-            # nothing passed by the user. set node to None
-            pubsub_node = None
-
-        self.node = pubsub_node
-
-    def get_pubsub_node(self):
-        """
-        Get the node that is being used as the pubsub connection
-        """
-        return self.node
-
-    def _raise_on_invalid_node(self, redis_cluster, node, host, port):
-        """
-        Raise a RedisClusterException if the node is None or doesn't exist in
-        the cluster.
-        """
-        if node is None or redis_cluster.get_node(node_name=node.name) is None:
-            raise RedisClusterException(
-                f"Node {host}:{port} doesn't exist in the cluster"
-            )
-
-    def execute_command(self, *args, **kwargs):
-        """
-        Execute a publish/subscribe command.
-
-        Taken code from redis-py and tweak to make it work within a cluster.
-        """
-        # NOTE: don't parse the response in this function -- it could pull a
-        # legitimate message off the stack if the connection is already
-        # subscribed to one or more channels
-
-        if self.connection is None:
-            if self.connection_pool is None:
-                if len(args) > 1:
-                    # Hash the first channel and get one of the nodes holding
-                    # this slot
-                    channel = args[1]
-                    slot = self.cluster.keyslot(channel)
-                    node = self.cluster.nodes_manager.get_node_from_slot(
-                        slot, self.cluster.read_from_replicas
-                    )
-                else:
-                    # Get a random node
-                    node = self.cluster.get_random_node()
-                self.node = node
-                redis_connection = self.cluster.get_redis_connection(node)
-                self.connection_pool = redis_connection.connection_pool
-            self.connection = self.connection_pool.get_connection(
-                "pubsub", self.shard_hint
-            )
-            # register a callback that re-subscribes to any channels we
-            # were listening to when we were disconnected
-            self.connection.register_connect_callback(self.on_connect)
-        connection = self.connection
-        self._execute(connection, connection.send_command, *args)
-
-    def get_redis_connection(self):
-        """
-        Get the Redis connection of the pubsub connected node.
-        """
-        if self.node is not None:
-            return self.node.redis_connection
 
 
 class ClusterPipeline(AbstractRedis, AbstractRedisCluster, AsyncRedisClusterCommands):

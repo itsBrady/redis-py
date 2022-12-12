@@ -2364,21 +2364,6 @@ class TestNodesManager:
                     assert rc.get_node(host=default_host, port=7002) is not None
 
 
-@pytest.mark.onlycluster
-class TestClusterPubSubObject:
-    """
-    Tests the async cluster pubsub class
-    """
-
-    def test_init_pubsub_with_host_and_port(self, r):
-        """
-        Test creation of pubsub instance with passed host and port
-        """
-        node = r.get_default_node()
-        p = r.pubsub(host=node.host, port=node.port)
-        assert p.get_pubsub_node() == node
-
-
 class TestClusterPipeline:
     """Tests for the ClusterPipeline class."""
 
